@@ -46,6 +46,39 @@ ACTIONS_ADAPTATION = [
     "éducation et sensibilisation"
 ]
 
+# Récupération des types de risques possibles
+def fetch_and_save_ppr_famille_risques(output_file="risques_ppr.csv"):
+    url = "https://georisques.gouv.fr/api/v1/ppr/famille_risques"
+    headers = {"accept": "application/json"}
+    
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()  # Vérifie si la requête a réussi
+        data = response.json()
+        
+        # Extraction des données
+        risques = []
+        for item in data.get("data", []):
+            code_risque = item.get("code_risque", "")
+            libelle_risque = item.get("libelle_risque", "")
+            for classe in item.get("classes_alea", []):
+                code_alea = classe.get("code", "")
+                libelle_alea = classe.get("libelle", "")
+                risques.append([code_risque, libelle_risque, code_alea, libelle_alea])
+        
+        # Écriture des données dans un fichier CSV
+        with open(output_file, mode="w", newline="", encoding="utf-8") as file:
+            writer = csv.writer(file)
+            writer.writerow(["Code Risque", "Libellé Risque", "Code Aléa", "Libellé Aléa"])
+            writer.writerows(risques)
+        
+        print(f"✅ Données enregistrées dans {output_file}")
+    
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Erreur lors de la requête API : {e}")
+    except Exception as e:
+        print(f"❌ Une erreur est survenue : {e}")
+
 # -------------------------------------------------------------------------
 # 2) UTILITAIRE POUR LIRE LE CSV
 # -------------------------------------------------------------------------
