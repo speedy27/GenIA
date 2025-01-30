@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*- 
 """
 Created on Wed Jan 29 20:36:23 2025
 
@@ -28,7 +28,7 @@ ACTIONS_ADAPTATION = [
 ]
 
 # Extraction des codes INSEE des communes (limité à 10)
-def extract_com_column(file_path, limit=10):
+def extract_com_column(file_path, limit=50):
     try:
         df = pd.read_csv(file_path, dtype={"COM": str})  
         if "COM" in df.columns:
@@ -40,12 +40,55 @@ def extract_com_column(file_path, limit=10):
         print(f"❌ Erreur lors de la lecture du fichier : {e}")
         return []
 
+# Récupération des coordonnées géographiques (latitude, longitude) pour un code INSEE
+def fetch_coordinates(code_insee):
+    url = f"https://geo.api.gouv.fr/communes/{code_insee}?fields=centre"
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            data = response.json()
+            if "centre" in data and "coordinates" in data["centre"]:
+                lon, lat = map(float, data["centre"]["coordinates"])  # Conversion explicite en float
+                return lat, lon
+    except Exception as e:
+        print(f"⚠ Erreur API pour {code_insee}: {e}")
+    return None, None
+
+# Récupération de la zone de sismicité en fonction des coordonnées
+def fetch_sismicite(lat, lon):
+    url = f"https://georisques.gouv.fr/api/v1/zonage_sismique?latlon={lon},{lat}"
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            data = response.json()
+            if "data" in data and len(data["data"]) > 0:
+                return data["data"][0]["zone_sismicite"]
+    except Exception as e:
+        print(f"⚠ Erreur API sismicité pour ({lat}, {lon}): {e}")
+    return "Non disponible"
+
+# Récupération des données de retrait-gonflement des argiles (RGA) en fonction des coordonnées
+def fetch_rga(lat, lon):
+    url = f"https://georisques.gouv.fr/api/v1/rga?latlon={lon},{lat}"
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            data = response.json()
+            return data.get("exposition", "Non disponible"), data.get("codeExposition", "Non disponible")
+    except Exception as e:
+        print(f"⚠ Erreur API RGA pour ({lat}, {lon}): {e}")
+    return "Non disponible", "Non disponible"
+
 # Récupération des risques et adaptation par commune
 def fetch_risk_reports(com_codes, output_file):
     base_url = "https://www.georisques.gouv.fr/api/v1/resultats_rapport_risque?code_insee="
     data_list = []
 
     for code in com_codes:
+        lat, lon = fetch_coordinates(code)
+        sismicite = fetch_sismicite(lat, lon) if lat and lon else "Non disponible"
+        rga_expo, rga_code = fetch_rga(lat, lon) if lat and lon else ("Non disponible", "Non disponible")
+
         response = requests.get(base_url + str(code))
         
         if response.status_code == 200:
@@ -62,6 +105,11 @@ def fetch_risk_reports(com_codes, output_file):
                 "Commune": commune.get("libelle", "Inconnu"),
                 "Code Postal": commune.get("codePostal", "Inconnu"),
                 "URL Rapport": json_data.get("url", "Non disponible"),
+                "Latitude": float(lat) if lat else "Non disponible",  # Assurez-vous que la latitude soit en float
+                "Longitude": float(lon) if lon else "Non disponible",  # Assurez-vous que la longitude soit en float
+                "Zone Sismicité": sismicite,
+                "RGA Exposition": rga_expo,
+                "RGA Code": rga_code
             }
 
             # Ajout des colonnes pour chaque type de risque avec True/False
@@ -80,7 +128,7 @@ def fetch_risk_reports(com_codes, output_file):
                 data[risque_climatique] = risque_climatique in risques_climatiques_retenus
 
             # Définition des actions d'adaptation en fonction des risques détectés
-            actions_retenues = ACTIONS_ADAPTATION[:3] if risques_identifiés else []
+            actions_retenues = ACTIONS_ADAPTATION[:3] if risques_identifiés else []  # Limité à 3 actions
 
             # Ajout des colonnes actions d’adaptation avec True/False
             for action in ACTIONS_ADAPTATION:
@@ -104,6 +152,6 @@ def fetch_risk_reports(com_codes, output_file):
 file_path = "v_commune_2024.csv"  # Remplacez par le chemin de votre fichier CSV
 output_file = "resultats_risques_10_villes.csv"
 
-com_column = extract_com_column(file_path, limit=10)  # Limité à 10 communes
+com_column = extract_com_column(file_path, limit=50)  # Limité à 10 communes
 if com_column:
     fetch_risk_reports(com_column, output_file)
