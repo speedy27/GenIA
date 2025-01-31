@@ -1,0 +1,326 @@
+﻿<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Carte interactive SFIL</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: grid;
+            grid-template-columns: 3fr 1fr;
+            grid-template-rows: auto 1fr;
+            height: 100vh;
+            gap: 5px;
+            background: #f0f0f0;
+        }
+        #selectors-container {
+            grid-column: 1 / 3;
+            background: white;
+            padding: 10px;
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            align-items: center;
+            border-bottom: 1px solid #ccc;
+        }
+        select { padding: 5px; }
+        #map-container { grid-column: 1 / 2; grid-row: 2 / 3; position: relative; border: 1px solid #ccc; }
+        #map { width: 100%; height: 100%; }
+        #side-container {
+            grid-column: 2 / 3;
+            grid-row: 2 / 3;
+            display: flex;
+            flex-direction: column;
+            border-left: 1px solid #ccc;
+        }
+        #tabs {
+            display: flex;
+            justify-content: space-around;
+            background: white;
+            border-bottom: 1px solid #ccc;
+        }
+        .tab { padding: 10px; cursor: pointer; flex: 1; text-align: center; font-weight: bold; }
+        .tab.active { background: #ddd; }
+        .tab-content { display: none; flex: 1; padding: 10px; overflow-y: auto; }
+        .tab-content.active { display: block; }
+    </style>
+</head>
+<body>
+
+    <div id="selectors-container">
+        <label for="disaster-select">Type :</label>
+        <select id="disaster-select">
+            <option value="Incendie">Incendie</option>
+            <option value="inondation">Inondation</option>
+        </select>
+
+        <label for="data-select">Donnée :</label>
+        <select id="data-select">
+            <option value="Risque">Risque</option>
+            <option value="Investissement">Investissement des communes</option>
+        </select>
+    </div>
+
+    <div id="map-container">
+        <div id="map"></div>
+    </div>
+
+    <div id="side-container">
+        <div id="tabs">
+            <div class="tab active" onclick="showTab('stats')">📊 Stats</div>
+            <div class="tab" onclick="showTab('prompt')">💬 Prompt</div>
+        </div>
+
+        <div id="stats-container" class="tab-content active">
+            <p><strong>Statistiques :</strong></p>
+            <div id="stats-content">Données statistiques ici...</div>
+            <div id="stats-link" style="cursor: pointer;"><a href="https://www.google.com" target="_blank" id="stats-link_href"></a></div>
+
+            <button onclick="saveData()" style="width: 100%; margin-top: 5px;">Envoyer</button>
+        </div>
+
+        <div id="prompt-container" class="tab-content">
+            <textarea id="prompt" placeholder="Prompt..." rows="3" style="width: 100%;"></textarea>
+            <button onclick="sendPrompt()" style="width: 100%; margin-top: 5px;">Envoyer</button>
+            <div id="output-container">VIDE</div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    
+    <script>
+        var map = L.map("map").setView([47.06, 2.56], 6);
+
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 13, minZoom: 6, attribution: '&copy; OpenStreetMap'
+}).addTo(map);
+
+var geojson;
+var activeLayer = "Incendie";
+var activeData = "Risque";
+var firstLoad = true; // Permet de charger les régions par défaut
+
+// Fonction pour charger et afficher la couche en fonction du zoom
+function updateLayerOnZoom() {
+    var currentZoom = map.getZoom();
+    if (currentZoom >= 13) {
+        // Zoom >= 10 → Afficher les COMMUNES
+        geojsonFile = activeLayer === "Incendie" ? "communes_incendie.geojson" : "communes_inondation.geojson";
+    } else if (currentZoom > 7) {
+        // Zoom 8-9 → Afficher les DÉPARTEMENTS
+        geojsonFile = activeLayer === "Incendie" ? "departements_incendie.geojson" : "departements_inondation.geojson";
+    } else {
+        // Zoom ≤ 7 → Afficher les RÉGIONS
+        geojsonFile = activeLayer === "Incendie" ? "regions_incendie.geojson" : "regions_inondation.geojson";
+    }
+
+    // Vérifie si la couche actuelle est déjà affichée pour éviter de la recharger inutilement
+    if (geojson && geojson.options.fileName === geojsonFile) return;
+
+    // Supprime l'ancienne couche si elle existe
+    if (geojson) map.removeLayer(geojson);
+
+    // Charger et afficher la nouvelle couche
+    
+    fetch(geojsonFile)
+        .then(response => response.json())
+        .then(data => {
+            geojson = L.geoJson(data, { style: styleLayer, onEachFeature: onEachFeature }).addTo(map);
+            geojson.options.fileName = geojsonFile; // Sauvegarde le fichier chargé
+
+            // Ajuste la carte uniquement lors du premier chargement
+            if (firstLoad) {
+                //map.fitBounds(geojson.getBounds());
+                firstLoad = false;
+            }
+        })
+        .catch(error => console.error("Erreur chargement GeoJSON :", error));
+}
+
+// Fonction de mise à jour selon les sélections utilisateur
+function updateMap() {
+    activeLayer = document.getElementById("disaster-select").value;
+    activeData = document.getElementById("data-select").value;
+    
+
+    updateLayerOnZoom(); // Recharge la bonne couche selon le zoom et la sélection
+}
+
+// Gestion des couleurs
+function getColor(value) {
+    return activeLayer === "Incendie"
+        ? (value > 90 ? '#800026' : value > 79 ? '#BD0026' : value > 68 ? '#E31A1C' : value > 57 ? '#FC4E2A' :
+          value > 46 ? '#FD8D3C' : value > 35 ? '#FEB24C' : value > 24 ? '#FED976' : '#FFEDA0')
+        : (value > 90 ? '#001F3F' : value > 79 ? '#003566' : value > 68 ? '#004D80' : value > 57 ? '#0066A2' :
+          value > 46 ? '#338DC8' : value > 35 ? '#66AEE0' : value > 24 ? '#99CCF3' : '#CCE5FF');
+}
+
+// Applique le style aux couches
+function styleLayer(feature) {
+    return {
+        fillColor: getColor(feature.properties.code),
+        weight: 2, opacity: 1, color: 'white',
+        dashArray: '3', fillOpacity: 0.7
+    };
+}
+
+// Interactions avec la carte
+function highlightFeature(e) {
+    var layer = e.target;
+    layer.setStyle({ weight: 5, color: '#666', dashArray: '', fillOpacity: 0.7 });
+    layer.bringToFront();
+}
+
+function resetHighlight(e) {
+    geojson.resetStyle(e.target);
+}
+let nomCommune = "Non défini"; 
+let nomRisque= "Non défini"; 
+let Rapport_url= "Non défini"; 
+function zoomToFeature(e) {
+    let texte = `${e.target.feature.properties.nom} : ${e.target.feature.properties.code}\n${activeLayer} - ${activeData}`;
+    
+    document.getElementById("prompt").value = texte;
+    var div_lien= document.getElementById('stats-link');
+    let links = document.querySelectorAll("a");
+    
+    
+    if(map.getZoom()==13){
+    nomCommune=e.target.feature.properties.nom;
+    nomRisque=activeLayer;
+    Rapport_url=`https://georisques.gouv.fr/api/v1/rapport_pdf?code_insee=${e.target.feature.properties.code}`
+    // Mettre à jour le href du lien
+        links[3].setAttribute("href",Rapport_url); 
+        links[3].innerText = `Rapport_${e.target.feature.properties.nom}`;
+        
+    }
+    
+}
+
+function onEachFeature(feature, layer) {
+    layer.on({ mouseover: highlightFeature, mouseout: resetHighlight, click: zoomToFeature });
+}
+function showTab(tab) {
+    document.querySelectorAll('.tab, .tab-content').forEach(e => e.classList.remove('active'));
+    document.querySelector(`[onclick="showTab('${tab}')"]`).classList.add('active');
+    document.getElementById(`${tab}-container`).classList.add('active');
+}
+function sendPrompt() {
+    document.getElementById("output-container").innerText = document.getElementById("prompt").value || "VIDE";
+}
+// Écoute les événements de zoom et de sélection
+map.on('zoomend', updateLayerOnZoom);
+document.getElementById("disaster-select").addEventListener("change", updateMap);
+document.getElementById("data-select").addEventListener("change", updateMap);
+
+// Charge la carte avec les régions par défaut
+updateLayerOnZoom();
+
+
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/1.5.3/jspdf.debug.js" integrity="sha384-NaWTHo/8YCBYJ59830LTz/P4aQZK1sS0SneOgAvhsIl3zBu8r9RevNg5lHCHAuQ/" crossorigin="anonymous"></script> 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/0.5.0-beta4/html2canvas.min.js"></script>
+
+    <script>
+        
+        function saveData() {
+    const doc = new jsPDF({
+        orientation: "landscape", // 📜 Mode paysage
+        unit: "mm",
+        format: "a4"
+    });
+
+    // 🎨 Fond bleu ciel
+    doc.setFillColor(211, 211,211);
+    doc.rect(0, 0, 297, 210, "F"); // A4 paysage (297mm x 210mm)
+
+    // 📌 En-tête
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    //doc.setTextColor(0, 51, 102);
+    doc.text("FICHE D’ANALYSE DES RISQUES CLIMATIQUES", 220, 20,align="right");
+
+    // 📍 Nom de la commune
+    doc.setFontSize(12);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(0, 0, 0);
+    doc.text(` Commune : ${nomCommune}`, 20, 45); 
+
+    // 📝 Informations générales
+    doc.text(` Risque climatique : ${nomRisque}`, 20, 55);
+    doc.text(" Note climatique SFIL : _____________", 20, 65);
+
+    // 📌 Évaluation du risque
+    doc.setFont("helvetica", "bold");
+    doc.text(" Évaluation du risque :", 20, 80);
+    doc.setFont("helvetica", "normal");
+    doc.text("- Niveau de risque et comparaison régionale", 20, 90);
+    doc.text("- Historique des catastrophes naturelles", 20, 100);
+    doc.textWithLink("Document", 20, 110,{ url: Rapport_url });
+
+    // 📄 Actualités locales
+    doc.setFont("helvetica", "bold");
+    doc.text("Actualités locales :", 20, 115);
+    doc.setFont("helvetica", "normal");
+    doc.text("- Articles de presse", 20, 125);
+    doc.text("- Événements passés", 20, 135);
+    doc.text("- Régime d'assurance", 20, 145);
+
+    // 🖼 Ajout des images sur la droite avec un espace
+    let imgX = 190; // Position X des images
+    let imgY1 = 50; // Position Y de la 1ère image
+    let imgY2 = 110; // Position Y de la 2ème image
+    function addImageToPDF(imgSrc, x, y, width, height, callback) {
+                let img = new Image();
+                img.crossOrigin = "Anonymous";
+                img.onload = function () {
+                    let canvas = document.createElement("canvas");
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    let ctx = canvas.getContext("2d");
+                    ctx.drawImage(img, 0, 0);
+                    let base64Image = canvas.toDataURL("image/png");
+                    doc.addImage(base64Image, "PNG", x, y, width, height);
+                    callback();
+                };
+                img.src = imgSrc;
+            }
+    let img1 = "photo1.png"; 
+            let img2 = "photo2.png";  
+    
+            if (img1) {
+                addImageToPDF(img1, 175, 55, 89, 50, function () {
+                    if (img2) {
+                        addImageToPDF(img2, 175, 120, 89, 50, function () {
+                            doc.save(`Fiche_${nomCommune}.pdf`); //  Sauvegarde finale
+                        });
+                    } else {
+                        doc.save(`Fiche_${nomCommune}.pdf`);
+                    }
+                });
+            } else {
+                doc.save(`Fiche_${nomCommune}.pdf`);
+            }
+
+    // 📌 Conclusion
+    doc.setFont("helvetica", "bold");
+    doc.text(" Conclusion :", 20, 170);
+    doc.setFont("helvetica", "normal");
+    doc.text("- Le risque est-il bien identifié ?", 20, 180);
+    doc.text("- La collectivité a-t-elle des actions en place ?", 20, 190);
+    doc.text("- Perspectives d’adaptation ?", 20, 200);
+
+    
+}
+
+    </script>
+    
+    
+
+
+
+</body>
+</html>
