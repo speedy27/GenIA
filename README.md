@@ -14,7 +14,6 @@ GenIA est un portail interactif dédié à l’analyse des risques climatiques e
 - **Prévision temporelle**  
   Implémentation d’un modèle LSTM en PyTorch pour prévoir l’évolution d’une variable (ex. le budget collectif) sur les 10 prochaines années, avec un prétraitement des séries temporelles et une normalisation (via Scikit-Learn).
 
-> **Note :** La fonctionnalité de simulateur de coûts, initialement prévue, n’est pas intégrée dans cette version du projet.
 
 ---
 
