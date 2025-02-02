@@ -1,0 +1,102 @@
+import pandas as pd
+from sklearn.preprocessing import MinMaxScaler
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, LSTM
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Séries à traiter
+series_to_keep = ['TEL-MOB-SUB', 'TEL-ACC-LINE', 'TEL-REV-TOT']
+
+# Chargement des données
+file_path = 'full_data_complet.csv'  # Remplacez par le chemin vers votre fichier CSV
+data = pd.read_csv(file_path)
+
+# Filtrer les données pour les séries souhaitées
+filtered_data = data[data['SER'].isin(series_to_keep)]
+
+# Taille de la séquence et nombre d'epochs
+sequence_length = 10
+epochs = 150
+
+# Résultats stockés pour chaque série
+results = {}
+
+# Boucle sur chaque série
+for series in series_to_keep:
+    series_data = filtered_data[filtered_data['SER'] == series]
+    series_data = series_data[['TIME_PERIOD', 'OBS_VALUE']].dropna()
+    series_data['TIME_PERIOD'] = series_data['TIME_PERIOD'].astype(int)
+    series_data['OBS_VALUE'] = series_data['OBS_VALUE'].astype(float)
+    
+    # Calculer les moyennes annuelles
+    series_data_grouped = series_data.groupby('TIME_PERIOD')['OBS_VALUE'].mean().reset_index()
+    
+    # Mise à l'échelle des moyennes annuelles
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    scaled_data = scaler.fit_transform(series_data_grouped[['OBS_VALUE']])
+    
+    # Création des séquences pour le modèle LSTM
+    X, y = [], []
+    for i in range(sequence_length, len(scaled_data)):
+        X.append(scaled_data[i-sequence_length:i, 0])
+        y.append(scaled_data[i, 0])
+    X, y = np.array(X), np.array(y)
+    X = X.reshape((X.shape[0], X.shape[1], 1))
+    
+    # Création du modèle LSTM
+    model = Sequential([
+        LSTM(100, return_sequences=True, input_shape=(X.shape[1], 1)),
+        LSTM(100, return_sequences=False),
+        Dense(50, activation='relu'),
+        Dense(1)
+    ])
+    model.compile(optimizer='adam', loss='mean_squared_error')
+    model.fit(X, y, epochs=epochs, batch_size=16, verbose=1)
+    
+    # Génération des prédictions
+    last_sequence = scaled_data[-sequence_length:]
+    predictions = []
+    num_predictions = 10  # Prédire les 10 prochaines années
+    for _ in range(num_predictions):
+        input_sequence = last_sequence.reshape((1, sequence_length, 1))
+        pred = model.predict(input_sequence, verbose=0)
+        predictions.append(pred[0, 0])
+        last_sequence = np.append(last_sequence[1:], pred[0, 0]).reshape((sequence_length, 1))
+    
+    # Inverse la normalisation
+    predicted_values = scaler.inverse_transform(np.array(predictions).reshape(-1, 1))
+    predicted_years = list(range(series_data_grouped['TIME_PERIOD'].max() + 1,
+                                 series_data_grouped['TIME_PERIOD'].max() + 1 + num_predictions))
+    
+    # Stocker les résultats
+    results[series] = {
+        'historical_years': series_data_grouped['TIME_PERIOD'],
+        'historical_values': series_data_grouped['OBS_VALUE'],
+        'predicted_years': predicted_years,
+        'predicted_values': predicted_values.flatten()
+    }
+
+# Visualisation des résultats pour chaque série
+plt.figure(figsize=(15, 10))
+
+for i, series in enumerate(series_to_keep, 1):
+    plt.subplot(3, 1, i)
+    
+    # Données historiques (moyennes annuelles)
+    plt.plot(results[series]['historical_years'], results[series]['historical_values'], 
+             label=f"{series} - Moyennes annuelles", marker='o', color='blue')
+    
+    # Prédictions
+    plt.plot(results[series]['predicted_years'], results[series]['predicted_values'], 
+             label=f"{series} - Prédictions futures", marker='o', linestyle='--', color='orange')
+    
+    # Détails du graphique
+    plt.title(f"Évolution et Prédictions : {series}")
+    plt.xlabel("Années")
+    plt.ylabel("Valeurs")
+    plt.legend()
+    plt.grid(True)
+
+plt.tight_layout()
+plt.show()
