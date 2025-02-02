@@ -101,6 +101,24 @@ Langage principal du projet pour le développement des scripts de scraping, du d
 
 ---
 
+## AWS Cloud
+
+Le projet intègre également plusieurs services AWS pour assurer l’automatisation et la scalabilité des analyses et du stockage des données :
+
+- **AWS Bucket (S3)**  
+  Utilisation d’un bucket S3 pour stocker les datasets collectés ainsi que les résultats d’analyse.
+
+- **AWS Lambda**  
+  Automatisation des traitements et analyses via des fonctions serverless, permettant d’exécuter du code en réponse à des événements sans gérer de serveurs.
+
+- **AWS Bedrock**  
+  Intégration avec Amazon Bedrock pour le déploiement et la gestion des modèles d’IA avancés, facilitant ainsi l’analyse prédictive.
+
+- **AWS Agent**  
+  Composant d’agent déployé sur AWS pour orchestrer la communication entre les différents services cloud et optimiser les flux de données.
+
+--
+
 ## Installation
 
 ### Prérequis
