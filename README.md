@@ -71,6 +71,9 @@ Le projet se divise en deux modules principaux :
 - **Google Dorks**  
   Génère des requêtes pour faciliter des recherches complémentaires en ligne.
 
+- **API**
+  Utilisation d'API pour extraire les données pluss facilement. 
+
 ### Module Dashboard & Prévision
 
 - **Dashboard**  
